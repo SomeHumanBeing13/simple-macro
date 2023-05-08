@@ -3,9 +3,11 @@ import json
 import pyautogui
 import pickle
 from tkinter import filedialog
+from pynput import mouse, keyboard
+from pynput.mouse import Button, Controller
 
 macro = []  # Define macro as a global variable
-
+recording = False
 # Define function for start recording button
 def start_record():
     global recording
@@ -13,21 +15,25 @@ def start_record():
     global macro
     macro = []  # clear the macro list
     print("Recording started")
+    print("Recording status: " + str(recording))
+    mouse_listener = mouse.Listener( on_click=on_click, on_scroll=on_scroll)
+    keyboard_listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+    mouse_listener.start()
+    keyboard_listener.start()
 
 # Define function for stop recording button
 def stop_record():
     global recording
     recording = False
-    print("Recording stopped")
-    print(macro)  # print the macro list to see if it contains any data
+    if len(macro) == 0:
+     print("WARNING: The macro didn't record anything. It may or may not have failed to record properly.")
+    else:
+     print("Successfully Recorded the macro!")
+    print("Recording status: " + str(recording))
+    print(macro)
     return macro
 
-# Define function for on_move
-def on_move(x, y):
-    global recording
-    if recording:
-        print("Mouse moved to ({0}, {1})".format(x, y))
-        macro.append(('move', x, y, time.time()))
+
 
 # Define function for on_click
 def on_click(x, y, button, pressed):
@@ -60,6 +66,7 @@ def on_press(key):
         macro.append(('keypress', key_name, time.time()))
 
 # Define function for on_release
+# Define function for on_release
 def on_release(key):
     global recording
     if recording:
@@ -69,32 +76,86 @@ def on_release(key):
             key_name = key.name
         print("Key {0} released".format(key_name))
         macro.append(('keyrelease', key_name, time.time()))
+        # Remove the corresponding keypress event from macro
+        for i in range(len(macro)-1, -1, -1):
+            if macro[i][0] == 'keypress' and macro[i][1] == key_name:
+                macro.pop(i)
+                break
+
 
         # play the macro
 def play_macro():
-    for event in macro:
-        if event[0] == 'move':
-            pyautogui.moveTo(event[1], event[2])
-        elif event[0] == 'click':
-            if event[1] == 'left':
-                pyautogui.click(event[2], event[3])
-            elif event[1] == 'right':
-                pyautogui.rightClick(event[2], event[3])
-            elif event[1] == 'middle':
-                pyautogui.middleClick(event[2], event[3])
-        elif event[0] == 'scroll':
-            if event[1] == 'up':
-                pyautogui.scroll(1)
-            elif event[1] == 'down':
-                pyautogui.scroll(-1)
-        elif event[0] == 'keypress':
-            pyautogui.press(event[1])
-        elif event[0] == 'keyrelease':
-            pyautogui.keyUp(event[1])
+    mouse_controller = Controller()
+    keyboard_controller = keyboard.Controller()
+    for action in macro:
+        if action[0] == "click":
+            button = action[1]
+            x, y = action[2], action[3]
+            mouse_controller.position = (x, y)
+            time.sleep(0.5)
+            try:
+                if button == Button.left:
+                    mouse_controller.press(Button.left)
+                    mouse_controller.release(Button.left)
+                elif button == Button.right:
+                    mouse_controller.press(Button.right)
+                    mouse_controller.release(Button.right)
+                else:
+                    raise ValueError(f"Invalid button: {button}")
+            except Exception as e:
+                print(f"Error: {e}")
+        elif action[0] == "scroll":
+            direction = action[1]
+            x, y = action[2], action[3]
+            distance = action[4]
+            mouse_controller.position = (x, y)
+            time.sleep(0.5)
+            try:
+                if direction == "up":
+                    mouse_controller.scroll(0, distance)
+                elif direction == "down":
+                    mouse_controller.scroll(0, -distance)
+                else:
+                    raise ValueError(f"Invalid direction: {direction}")
+            except Exception as e:
+                print(f"Error: {e}")
+        elif action[0] == "keypress":
+            key = action[1]
+            try:
+                keyboard_controller.press(key)
+                time.sleep(0.5)
+                keyboard_controller.release(key)
+            except Exception as e:
+                print(f"Error: {e}")
+
+
+
+
+
 
             # export the macro
-def export_macro(macro_list):
-    filename = filedialog.asksaveasfilename(defaultextension=".txt")
-    with open(filename, "w") as f:
-        for action in macro_list:
-            f.write(action + "\n")
+def export_macro(macro):
+    with open("macro.json", "w") as f:
+        actions = []
+        for action in macro:
+            if action[0] == "click":
+                actions.append({
+                    "type": "click",
+                    "button": action[1],
+                    "x": action[2],
+                    "y": action[3]
+                })
+            elif action[0] == "scroll":
+                actions.append({
+                    "type": "scroll",
+                    "direction": action[1],
+                    "x": action[2],
+                    "y": action[3],
+                    "distance": action[4]
+                })
+            elif action[0] == "keypress":
+                actions.append({
+                    "type": "keypress",
+                    "key": action[1]
+                })
+        json.dump(actions, f)
